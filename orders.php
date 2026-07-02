@@ -1,137 +1,92 @@
 <?php
 
-  include_once("conn.php");
+include_once("conn.php");
 
-  $method = $_SERVER["REQUEST_METHOD"];
+$method = $_SERVER["REQUEST_METHOD"];
 
-  if($method === "GET") {
+if ($method === "GET") {
 
-    $pedidosQuery = $conn->query("SELECT * FROM pedidos;");
+  $pedidos = $conn->query("SELECT * FROM pedidos")->fetchAll(PDO::FETCH_ASSOC);
 
-    $pedidos = $pedidosQuery->fetchAll();
+  $pizzas = [];
 
-    $pizzas = [];
+  foreach ($pedidos as $pedido) {
 
-    // Montando pizza
-    foreach($pedidos as $pedido) {
+    $pizzaId = $pedido["pizza_id"];
 
-      $pizza = [];
+    $pizzaQuery = $conn->prepare("SELECT * FROM pizzas WHERE id = :id");
+    $pizzaQuery->bindParam(":id", $pizzaId, PDO::PARAM_INT);
+    $pizzaQuery->execute();
+    $pizzaData = $pizzaQuery->fetch(PDO::FETCH_ASSOC);
 
-      // definir um array para a pizza
-      $pizza["id"] = $pedido["pizza_id"];
+    $bordaQuery = $conn->prepare("SELECT tipo FROM bordas WHERE id = :id");
+    $bordaQuery->bindParam(":id", $pizzaData["borda_id"], PDO::PARAM_INT);
+    $bordaQuery->execute();
+    $borda = $bordaQuery->fetchColumn();
 
-      // resgatando a pizza
-      $pizzaQuery = $conn->prepare("SELECT * FROM pizzas WHERE id = :pizza_id");
+    $massaQuery = $conn->prepare("SELECT tipo FROM massas WHERE id = :id");
+    $massaQuery->bindParam(":id", $pizzaData["massa_id"], PDO::PARAM_INT);
+    $massaQuery->execute();
+    $massa = $massaQuery->fetchColumn();
 
-      $pizzaQuery->bindParam(":pizza_id", $pizza["id"]);
+    $saboresQuery = $conn->prepare("
+      SELECT s.nome 
+      FROM pizza_sabor ps
+      JOIN sabores s ON s.id = ps.sabor_id
+      WHERE ps.pizza_id = :pizza_id
+    ");
 
-      $pizzaQuery->execute();
+    $saboresQuery->bindParam(":pizza_id", $pizzaId, PDO::PARAM_INT);
+    $saboresQuery->execute();
+    $sabores = $saboresQuery->fetchAll(PDO::FETCH_COLUMN);
 
-      $pizzaData = $pizzaQuery->fetch(PDO::FETCH_ASSOC);
-
-      // resgatando a borda da pizza
-      $bordaQuery = $conn->prepare("SELECT * FROM bordas WHERE id = :borda_id");
-
-      $bordaQuery->bindParam(":borda_id", $pizzaData["borda_id"]);
-
-      $bordaQuery->execute();
-
-      $borda = $bordaQuery->fetch(PDO::FETCH_ASSOC);
-
-      $pizza["borda"] = $borda["tipo"];
-
-      // resgatando a borda da pizza
-      $massaQuery = $conn->prepare("SELECT * FROM massas WHERE id = :massa_id");
-
-      $massaQuery->bindParam(":massa_id", $pizzaData["massa_id"]);
-
-      $massaQuery->execute();
-
-      $massa = $massaQuery->fetch(PDO::FETCH_ASSOC);
-
-      $pizza["massa"] = $massa["tipo"];
-
-      // resgatando os sabores da pizza
-      $saboresQuery = $conn->prepare("SELECT * FROM pizza_sabor WHERE pizza_id = :pizza_id");
-
-      $saboresQuery->bindParam(":pizza_id", $pizza["id"]);
-
-      $saboresQuery->execute();
-
-      $sabores = $saboresQuery->fetchAll(PDO::FETCH_ASSOC);
-
-      // resgatando o nome dos sabores
-      $saboresDaPizza = [];
-
-      $saborQuery = $conn->prepare("SELECT * FROM sabores WHERE id = :sabor_id");
-
-      foreach($sabores as $sabor) {
-
-        $saborQuery->bindParam(":sabor_id", $sabor["sabor_id"]);
-
-        $saborQuery->execute();
-
-        $saborPizza = $saborQuery->fetch(PDO::FETCH_ASSOC);
-
-        array_push($saboresDaPizza, $saborPizza["nome"]);
-
-      }
-
-      $pizza["sabores"] = $saboresDaPizza;
-
-      // adicionar o status do pedido
-      $pizza["status"] = $pedido["status_id"];
-
-      // Adicionar o array de pizza, ao array das pizzas
-      array_push($pizzas, $pizza);
-
-    }
-
-    // Resgatando os status
-    $statusQuery = $conn->query("SELECT * FROM status;");
-
-    $status = $statusQuery->fetchAll();
-
-  } else if($method === "POST") {
-
-    // verificando tipo de POST
-    $type = $_POST["type"];
-
-    // deletar pedido
-    if($type === "delete") {
-
-      $pizzaId = $_POST["id"];
-
-      $deleteQuery = $conn->prepare("DELETE FROM pedidos WHERE pizza_id = :pizza_id;");
-
-      $deleteQuery->bindParam(":pizza_id", $pizzaId, PDO::PARAM_INT);
-
-      $deleteQuery->execute();
-
-      $_SESSION["msg"] = "Pedido removido com sucesso!";
-      $_SESSION["status"] = "success";
-
-    // Atualizar status do pedido
-    } else if($type === "update") {
-
-      $pizzaId = $_POST["id"];
-      $statusId = $_POST["status"];
-
-      $updateQuery = $conn->prepare("UPDATE pedidos SET status_id = :status_id WHERE pizza_id = :pizza_id");
-
-      $updateQuery->bindParam(":pizza_id", $pizzaId, PDO::PARAM_INT);
-      $updateQuery->bindParam(":status_id", $statusId, PDO::PARAM_INT);
-
-      $updateQuery->execute();
-
-      $_SESSION["msg"] = "Pedido atualizado com sucesso!";
-      $_SESSION["status"] = "success";
-
-    }
-
-    // retorna usuário para dashboard
-    header("Location: ../dashboard.php");
-
+    $pizzas[] = [
+      "id" => $pizzaId,
+      "borda" => $borda,
+      "massa" => $massa,
+      "sabores" => $sabores,
+      "status" => $pedido["status_id"]
+    ];
   }
 
-?>
+  $status = $conn->query("SELECT * FROM status")->fetchAll(PDO::FETCH_ASSOC);
+}
+
+if ($method === "POST") {
+
+  $type = $_POST["type"] ?? null;
+
+  if ($type === "delete") {
+
+    $id = $_POST["id"];
+
+    $stmt = $conn->prepare("DELETE FROM pedidos WHERE pizza_id = :id");
+    $stmt->bindParam(":id", $id, PDO::PARAM_INT);
+    $stmt->execute();
+
+    $_SESSION["msg"] = "Pedido removido com sucesso!";
+    $_SESSION["status"] = "success";
+  }
+
+  if ($type === "update") {
+
+    $id = $_POST["id"];
+    $statusId = $_POST["status"];
+
+    $stmt = $conn->prepare("
+      UPDATE pedidos 
+      SET status_id = :status 
+      WHERE pizza_id = :id
+    ");
+
+    $stmt->bindParam(":id", $id, PDO::PARAM_INT);
+    $stmt->bindParam(":status", $statusId, PDO::PARAM_INT);
+    $stmt->execute();
+
+    $_SESSION["msg"] = "Pedido atualizado com sucesso!";
+    $_SESSION["status"] = "success";
+  }
+
+  header("Location: ../dashboard.php");
+  exit;
+}
